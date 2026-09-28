@@ -120,18 +120,19 @@ function Index() {
       scrollFrameRef.current = null;
       const reader = readerRef.current;
       if (!reader) return;
-      const atStart = reader.scrollTop <= 2;
-      const atEnd = reader.scrollTop + reader.clientHeight >= reader.scrollHeight - 2;
-      if (atStart) {
-        setIndex(0);
-        return;
-      }
-      if (atEnd) {
-        setIndex(Math.max(0, sentences.length - 1));
-        return;
+      const hasInnerScroll = reader.scrollHeight > reader.clientHeight + 2;
+      if (hasInnerScroll) {
+        if (reader.scrollTop <= 2) {
+          setIndex(0);
+          return;
+        }
+        if (reader.scrollTop + reader.clientHeight >= reader.scrollHeight - 2) {
+          setIndex(Math.max(0, sentences.length - 1));
+          return;
+        }
       }
       const readerRect = reader.getBoundingClientRect();
-      const center = readerRect.top + readerRect.height / 2;
+      const center = hasInnerScroll ? readerRect.top + readerRect.height / 2 : window.innerHeight / 2;
       let nearestIndex = index;
       let nearestDistance = Number.POSITIVE_INFINITY;
 
@@ -149,6 +150,13 @@ function Index() {
       setIndex(nearestIndex);
     });
   };
+
+  useEffect(() => {
+    if (!reading || pace !== "manual") return;
+    window.addEventListener("scroll", followScroll, { passive: true });
+    followScroll();
+    return () => window.removeEventListener("scroll", followScroll);
+  }, [pace, reading]);
 
   return (
     <main className={cn("reader-shell min-h-screen", dark && "dark")}>
