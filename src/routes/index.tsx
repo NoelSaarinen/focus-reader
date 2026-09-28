@@ -84,7 +84,7 @@ function Index() {
   }, []);
 
   useEffect(() => {
-    if (!reading) return;
+    if (!reading || pace !== "auto") return;
     const handleKey = (event: KeyboardEvent) => {
       if (event.code === "Space") {
         event.preventDefault();
@@ -99,7 +99,7 @@ function Index() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [advance, reading, retreat]);
+  }, [advance, pace, reading, retreat]);
 
   const startReading = () => {
     if (!text.trim()) return;
