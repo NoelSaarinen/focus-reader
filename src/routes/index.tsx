@@ -268,13 +268,13 @@ function Index() {
                      <div aria-hidden="true" className="magnetic-spacer" />
                    </div>
                  ) : (
-                   <div ref={readerRef} className="reader-copy my-auto max-h-[430px] overflow-y-auto pr-2 reader-text font-display leading-[1.75] [--reader-base:clamp(1.25rem,2vw,1.55rem)]">
-                     {sentences.map((sentence, sentenceIndex) => (
-                       <span key={`${sentenceIndex}-${sentence.slice(0, 12)}`} ref={(node) => { sentenceRefs.current[sentenceIndex] = node; }} className={cn("sentence-transition mr-[0.32em] rounded-lg", sentenceIndex === index ? "bg-highlight px-1.5 py-1 text-foreground" : "text-reading-dim")}>
-                         {sentence}
-                       </span>
-                     ))}
-                   </div>
+                  <div ref={readerRef} className="reader-copy my-auto max-h-[430px] overflow-y-auto pr-2 reader-text font-display leading-[1.75] [--reader-base:clamp(1.25rem,2vw,1.55rem)]">
+                      {sentences.map((sentence, sentenceIndex) => (
+                        <span key={`${sentenceIndex}-${sentence.slice(0, 12)}`} ref={(node) => { sentenceRefs.current[sentenceIndex] = node; }} className={cn("sentence-transition mr-[0.32em] rounded-lg", sentenceIndex === index ? "bg-highlight px-1.5 py-1 text-foreground opacity-100" : "text-reading-dim opacity-25")}>
+                          {sentence}
+                        </span>
+                      ))}
+                    </div>
                  )
               ) : (
                 <div key={index} className="animate-fade-in m-auto flex max-w-[620px] flex-col items-center py-12 text-center">
