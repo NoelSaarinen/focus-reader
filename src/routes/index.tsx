@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, Moon, Pause, Play, RotateCcw, Sun } from "lucide-react";
+import { ArrowLeft, Moon, Pause, Play, RotateCcw, ScrollText, Sun, Timer } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -41,10 +41,13 @@ function Index() {
   const [reading, setReading] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [mode, setMode] = useState<"highlight" | "focus">("highlight");
+  const [pace, setPace] = useState<"auto" | "manual">("auto");
   const [wpm, setWpm] = useState(240);
   const [index, setIndex] = useState(0);
   const [dark, setDark] = useState(false);
   const sentenceRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const readerRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const sentences = useMemo(() => splitSentences(text), [text]);
   const current = sentences[index] ?? "";
   const progress = sentences.length ? ((index + 1) / sentences.length) * 100 : 0;
@@ -63,21 +66,25 @@ function Index() {
   const retreat = useCallback(() => setIndex((position) => Math.max(0, position - 1)), []);
 
   useEffect(() => {
-    if (!playing || !current) return;
+    if (!playing || !current || pace !== "auto") return;
     const words = current.split(/\s+/).filter(Boolean).length;
     const delay = Math.max(900, (words / wpm) * 60_000);
     const timer = window.setTimeout(advance, delay);
     return () => window.clearTimeout(timer);
-  }, [advance, current, playing, wpm]);
+  }, [advance, current, pace, playing, wpm]);
 
   useEffect(() => {
-    if (mode === "highlight") {
+    if (mode === "highlight" && pace === "auto") {
       sentenceRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [index, mode]);
+  }, [index, mode, pace]);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
 
   useEffect(() => {
-    if (!reading) return;
+    if (!reading || pace !== "auto") return;
     const handleKey = (event: KeyboardEvent) => {
       if (event.code === "Space") {
         event.preventDefault();
@@ -92,14 +99,64 @@ function Index() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [advance, reading, retreat]);
+  }, [advance, pace, reading, retreat]);
 
   const startReading = () => {
     if (!text.trim()) return;
     setIndex(0);
     setReading(true);
-    setPlaying(true);
+    setPlaying(pace === "auto");
   };
+
+  const setReadingPace = (nextPace: "auto" | "manual") => {
+    setPace(nextPace);
+    setPlaying(false);
+    if (nextPace === "manual") setMode("highlight");
+  };
+
+  const followScroll = () => {
+    if (pace !== "manual" || scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const reader = readerRef.current;
+      if (!reader) return;
+      const hasInnerScroll = reader.scrollHeight > reader.clientHeight + 2;
+      if (hasInnerScroll) {
+        if (reader.scrollTop <= 2) {
+          setIndex(0);
+          return;
+        }
+        if (reader.scrollTop + reader.clientHeight >= reader.scrollHeight - 2) {
+          setIndex(Math.max(0, sentences.length - 1));
+          return;
+        }
+      }
+      const readerRect = reader.getBoundingClientRect();
+      const center = hasInnerScroll ? readerRect.top + readerRect.height / 2 : window.innerHeight / 2;
+      let nearestIndex = index;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+
+      sentenceRefs.current.forEach((sentence, sentenceIndex) => {
+        if (!sentence) return;
+        const rect = sentence.getBoundingClientRect();
+        const sentenceCenter = rect.top + rect.height / 2;
+        const distance = Math.abs(sentenceCenter - center);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = sentenceIndex;
+        }
+      });
+
+      setIndex(nearestIndex);
+    });
+  };
+
+  useEffect(() => {
+    if (!reading || pace !== "manual") return;
+    window.addEventListener("scroll", followScroll, { passive: true });
+    followScroll();
+    return () => window.removeEventListener("scroll", followScroll);
+  }, [pace, reading]);
 
   return (
     <main className={cn("reader-shell min-h-screen", dark && "dark")}>
@@ -138,13 +195,13 @@ function Index() {
           </section>
         ) : (
           <div className="flex flex-1 flex-col gap-5 pb-28 pt-6 sm:pt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start lg:pb-8">
-            <section className="glass-panel animate-fade-in flex min-h-[480px] flex-col p-6 sm:min-h-[570px] sm:p-9" onClick={advance}>
+            <section className="glass-panel animate-fade-in flex min-h-[480px] flex-col p-6 sm:min-h-[570px] sm:p-9" onClick={pace === "auto" ? advance : undefined}>
               <div className="mb-7 flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                <span className="flex items-center gap-2"><span className="size-1.5 rounded-full bg-sage" /> Reading now · {mode === "highlight" ? "Guided highlight" : "Focus"}</span>
+                 <span className="flex items-center gap-2"><span className="size-1.5 rounded-full bg-sage" /> Reading now · {pace === "manual" ? "Scroll at your pace" : mode === "highlight" ? "Guided highlight" : "Focus"}</span>
                 <span>{Math.round(progress)}%</span>
               </div>
               {mode === "highlight" ? (
-                <div className="reader-copy my-auto max-h-[430px] overflow-y-auto pr-2 font-display text-[clamp(1.25rem,2vw,1.55rem)] leading-[1.75]">
+                 <div ref={readerRef} onScroll={followScroll} className="reader-copy my-auto max-h-[430px] overflow-y-auto pr-2 font-display text-[clamp(1.25rem,2vw,1.55rem)] leading-[1.75]">
                   {sentences.map((sentence, sentenceIndex) => (
                     <span key={`${sentenceIndex}-${sentence.slice(0, 12)}`} ref={(node) => { sentenceRefs.current[sentenceIndex] = node; }} className={cn("sentence-transition mr-[0.32em] rounded-lg", sentenceIndex === index ? "bg-highlight px-1.5 py-1 text-foreground" : "text-reading-dim")}>
                       {sentence}
@@ -164,8 +221,9 @@ function Index() {
             </section>
 
             <aside className="glass-panel animate-fade-in hidden flex-col gap-7 p-5 lg:flex">
-              <ModeControl mode={mode} setMode={setMode} />
-              <SpeedControl wpm={wpm} setWpm={setWpm} />
+               <PaceControl pace={pace} setPace={setReadingPace} />
+               {pace === "auto" && <ModeControl mode={mode} setMode={setMode} />}
+               {pace === "auto" && <SpeedControl wpm={wpm} setWpm={setWpm} />}
               <div className="rounded-xl border border-glass-border bg-surface/55 p-4">
                 <div className="flex items-center justify-between text-xs font-medium"><span className="flex items-center gap-2"><span className="size-2 rounded-full bg-sage" /> Current sentence</span><span className="text-[10px] text-muted-foreground">{index + 1} / {sentences.length}</span></div>
                 <p className="mt-4 line-clamp-4 text-center font-display text-base leading-snug">{current}</p>
@@ -178,25 +236,40 @@ function Index() {
       {reading && (
         <div className="fixed inset-x-0 bottom-0 z-20 p-3 sm:p-5">
           <div className="glass-panel mx-auto flex max-w-[1000px] items-center gap-2 p-2.5 sm:gap-4 sm:px-4 sm:py-3">
-            <Button size="icon" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "Pause reading" : "Play reading"} className="size-11 shrink-0 rounded-full">
-              {playing ? <Pause /> : <Play />}
-            </Button>
-            <div className="hidden items-center gap-2 text-xs text-muted-foreground md:flex"><kbd>Space</kbd> next <kbd>←</kbd> back</div>
-            <div className="mx-1 flex min-w-0 flex-1 items-center gap-3 lg:hidden">
+             {pace === "auto" && <Button size="icon" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "Pause reading" : "Play reading"} className="size-11 shrink-0 rounded-full">
+               {playing ? <Pause /> : <Play />}
+             </Button>}
+             {pace === "auto" && <div className="hidden items-center gap-2 text-xs text-muted-foreground md:flex"><kbd>Space</kbd> next <kbd>←</kbd> back</div>}
+             <Button variant="outline" size="sm" onClick={() => setReadingPace(pace === "auto" ? "manual" : "auto")} className="shrink-0 lg:hidden" aria-label={pace === "auto" ? "Switch to self-paced scrolling" : "Switch to automatic reading"}>
+               {pace === "auto" ? <ScrollText /> : <Timer />}<span className="hidden sm:inline">{pace === "auto" ? "Scroll" : "Auto"}</span>
+             </Button>
+             {pace === "auto" && <div className="mx-1 flex min-w-0 flex-1 items-center gap-3 lg:hidden">
               <span className="hidden text-[10px] uppercase tracking-[0.14em] text-muted-foreground sm:block">{wpm} WPM</span>
               <Slider value={[wpm]} min={100} max={600} step={10} onValueChange={(value) => setWpm(value[0] ?? 240)} aria-label="Reading speed" />
-            </div>
-            <div className="hidden lg:block lg:flex-1" />
-            <div className="flex items-center gap-2 lg:hidden">
+             </div>}
+             <div className={cn("hidden lg:block lg:flex-1", pace === "manual" && "block flex-1")} />
+             {pace === "auto" && <div className="flex items-center gap-2 lg:hidden">
               <span className="hidden text-xs text-muted-foreground sm:inline">Focus</span>
               <Switch checked={mode === "focus"} onCheckedChange={(checked) => setMode(checked ? "focus" : "highlight")} aria-label="Toggle focus mode" />
-            </div>
+             </div>}
             <Button variant="ghost" size="icon" onClick={() => setIndex(0)} aria-label="Restart" title="Restart"><RotateCcw /></Button>
             <Button variant="outline" onClick={() => { setPlaying(false); setReading(false); }} className="shrink-0"><ArrowLeft /><span className="hidden sm:inline">Back to edit</span></Button>
           </div>
         </div>
       )}
     </main>
+  );
+}
+
+function PaceControl({ pace, setPace }: { pace: "auto" | "manual"; setPace: (pace: "auto" | "manual") => void }) {
+  return (
+    <div>
+      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Reading pace</div>
+      <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl border border-glass-border bg-surface/55 p-1">
+        <Button variant={pace === "auto" ? "default" : "ghost"} size="sm" onClick={() => setPace("auto")} className="rounded-lg shadow-none"><Timer /> Auto</Button>
+        <Button variant={pace === "manual" ? "default" : "ghost"} size="sm" onClick={() => setPace("manual")} className="rounded-lg shadow-none"><ScrollText /> Scroll</Button>
+      </div>
+    </div>
   );
 }
 
