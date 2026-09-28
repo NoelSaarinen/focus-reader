@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft, Clock, Pause, Play, RotateCcw, ScrollText, Timer, Type } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -118,6 +118,13 @@ function Index() {
     }
   }, [index, mode, pace]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark" || theme === "contrast");
+    root.classList.toggle("sepia", theme === "sepia");
+    root.classList.toggle("contrast", theme === "contrast");
+  }, [theme]);
+
   useEffect(() => () => {
     if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
   }, []);
@@ -202,7 +209,7 @@ function Index() {
   return (
     <main
       className={cn("reader-shell min-h-screen", (theme === "dark" || theme === "contrast") && "dark", theme === "sepia" && "sepia", theme === "contrast" && "contrast", font === "modern" && "font-modern", font === "access" && "font-access")}
-      style={{ "--reader-scale": SIZE_SCALE[size] } as React.CSSProperties}
+      style={{ "--reader-scale": SIZE_SCALE[size] } as CSSProperties}
     >
       <div className="reader-atmosphere" aria-hidden="true" />
       <div className="relative z-10 mx-auto flex min-h-screen max-w-[1048px] flex-col px-4 py-5 sm:px-6 sm:py-8">
