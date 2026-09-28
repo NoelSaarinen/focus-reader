@@ -201,13 +201,32 @@ function Index() {
                 <span>{Math.round(progress)}%</span>
               </div>
               {mode === "highlight" ? (
-                 <div ref={readerRef} onScroll={followScroll} className="reader-copy my-auto max-h-[430px] overflow-y-auto pr-2 font-display text-[clamp(1.25rem,2vw,1.55rem)] leading-[1.75]">
-                  {sentences.map((sentence, sentenceIndex) => (
-                    <span key={`${sentenceIndex}-${sentence.slice(0, 12)}`} ref={(node) => { sentenceRefs.current[sentenceIndex] = node; }} className={cn("sentence-transition mr-[0.32em] rounded-lg", sentenceIndex === index ? "bg-highlight px-1.5 py-1 text-foreground" : "text-reading-dim")}>
-                      {sentence}
-                    </span>
-                  ))}
-                </div>
+                 pace === "manual" ? (
+                   <div ref={readerRef} onScroll={followScroll} className="magnetic-scroll reader-copy my-auto flex h-[clamp(280px,55vh,430px)] flex-col overflow-y-auto px-2 font-display text-[clamp(1.25rem,2vw,1.55rem)] leading-[1.65] sm:px-5">
+                     <div aria-hidden="true" className="magnetic-spacer" />
+                     {sentences.map((sentence, sentenceIndex) => (
+                       <div
+                         key={`${sentenceIndex}-${sentence.slice(0, 12)}`}
+                         ref={(node) => { sentenceRefs.current[sentenceIndex] = node; }}
+                         className={cn(
+                           "magnetic-sentence sentence-transition flex min-h-20 shrink-0 items-center justify-center px-2 py-5 text-center sm:px-6",
+                           sentenceIndex === index ? "bg-highlight text-foreground" : "text-reading-dim opacity-20 blur-[1px]",
+                         )}
+                       >
+                         {sentence}
+                       </div>
+                     ))}
+                     <div aria-hidden="true" className="magnetic-spacer" />
+                   </div>
+                 ) : (
+                   <div ref={readerRef} className="reader-copy my-auto max-h-[430px] overflow-y-auto pr-2 font-display text-[clamp(1.25rem,2vw,1.55rem)] leading-[1.75]">
+                     {sentences.map((sentence, sentenceIndex) => (
+                       <span key={`${sentenceIndex}-${sentence.slice(0, 12)}`} ref={(node) => { sentenceRefs.current[sentenceIndex] = node; }} className={cn("sentence-transition mr-[0.32em] rounded-lg", sentenceIndex === index ? "bg-highlight px-1.5 py-1 text-foreground" : "text-reading-dim")}>
+                         {sentence}
+                       </span>
+                     ))}
+                   </div>
+                 )
               ) : (
                 <div key={index} className="animate-fade-in m-auto flex max-w-[620px] flex-col items-center py-12 text-center">
                   <span className="mb-6 font-sans text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{index + 1} of {sentences.length}</span>
