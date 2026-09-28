@@ -115,6 +115,9 @@
 .glass-panel { border: 1px solid var(--glass-border); border-radius: 1.25rem; background: var(--glass); box-shadow: 0 24px 60px -30px color-mix(in oklab, var(--foreground) 28%, transparent); backdrop-filter: blur(20px); }
 .sentence-transition { transition: color 420ms ease, background-color 420ms ease, opacity 420ms ease; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .reader-copy { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.magnetic-scroll { scroll-snap-type: y mandatory; scroll-behavior: smooth; overscroll-behavior-y: contain; touch-action: pan-y; }
+.magnetic-sentence { scroll-snap-align: center; scroll-snap-stop: always; border-radius: var(--radius); transition: color 260ms ease, background-color 260ms ease, opacity 260ms ease, filter 260ms ease; }
+.magnetic-spacer { flex: 0 0 calc(50% - 2.5rem); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
