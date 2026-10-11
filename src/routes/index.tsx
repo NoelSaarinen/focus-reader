@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, Clock, Pause, Play, RotateCcw, ScrollText, Timer, Type } from "lucide-react";
+import { ArrowLeft, Clock, Headphones, Pause, Play, RotateCcw, ScrollText, Square, Timer, Type, Volume2 } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,7 @@ function splitSentences(text: string) {
 
 const countWords = (value: string) => value.split(/\s+/).filter(Boolean).length;
 type Theme = "light" | "dark" | "sepia" | "contrast";
+type AudioState = "idle" | "playing" | "paused";
 type FontChoice = "serif" | "modern" | "access";
 const SIZE_SCALE = { S: 0.85, M: 1, L: 1.2 } as const;
 
@@ -81,9 +82,19 @@ function Index() {
   const [theme, setTheme] = useState<Theme>("light");
   const [size, setSize] = useState<keyof typeof SIZE_SCALE>("M");
   const [font, setFont] = useState<FontChoice>("serif");
-  const sentenceRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const sentenceRefs = useRef<Array<HTMLElement | null>>([]);
   const readerRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const [audioState, setAudioState] = useState<AudioState>("idle");
+  const [ttsSupported, setTtsSupported] = useState(false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voiceURI, setVoiceURI] = useState("");
+  const [rate, setRate] = useState(1);
+  const audioStateRef = useRef<AudioState>("idle");
+  const tokenRef = useRef(0);
+  const indexRef = useRef(0);
+  indexRef.current = index;
+  const speakFromRef = useRef<(i: number) => void>(() => {});
   const sentences = useMemo(() => splitSentences(text), [text]);
   const current = sentences[index] ?? "";
   const progress = sentences.length ? ((index + 1) / sentences.length) * 100 : 0;
@@ -113,10 +124,24 @@ function Index() {
   }, [advance, current, pace, playing, wpm]);
 
   useEffect(() => {
-    if (mode === "highlight" && pace === "auto") {
+    if (mode === "highlight" && (pace === "auto" || audioState === "playing")) {
       sentenceRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [index, mode, pace]);
+  }, [audioState, index, mode, pace]);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    setTtsSupported(true);
+    const synth = window.speechSynthesis;
+    const load = () => {
+      const list = synth.getVoices();
+      setVoices(list);
+      setVoiceURI((cur) => cur || list.find((v) => v.default)?.voiceURI || list[0]?.voiceURI || "");
+    };
+    load();
+    synth.addEventListener("voiceschanged", load);
+    return () => { synth.removeEventListener("voiceschanged", load); tokenRef.current += 1; synth.cancel(); };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -133,13 +158,14 @@ function Index() {
     if (!reading) return;
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [role=slider], [role=dialog]")) return;
+      if (target?.closest("input, textarea, select, [role=slider], [role=dialog]")) return;
       const forward = ["Space", "ArrowDown", "ArrowRight"].includes(event.code);
       const back = ["ArrowUp", "ArrowLeft"].includes(event.code);
       if (!forward && !back) return;
       event.preventDefault();
       if (pace === "manual") {
         const nextIndex = Math.min(sentences.length - 1, Math.max(0, index + (forward ? 1 : -1)));
+        if (audioStateRef.current === "playing") { speakFromRef.current(nextIndex); return; }
         setIndex(nextIndex);
         sentenceRefs.current[nextIndex]?.scrollIntoView({ behavior: "smooth", block: "center" });
       } else if (forward) advance();
@@ -156,14 +182,57 @@ function Index() {
     setPlaying(pace === "auto");
   };
 
+  const stopAudio = useCallback((next: AudioState = "idle") => {
+    tokenRef.current += 1;
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    audioStateRef.current = next;
+    setAudioState(next);
+  }, []);
+
+  const speakFrom = useCallback((start: number) => {
+    if (!("speechSynthesis" in window) || !sentences.length) return;
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const token = ++tokenRef.current;
+    const voice = voices.find((v) => v.voiceURI === voiceURI);
+    const run = (j: number) => {
+      if (token !== tokenRef.current) return;
+      if (j >= sentences.length) { audioStateRef.current = "idle"; setAudioState("idle"); return; }
+      setIndex(j);
+      const utterance = new SpeechSynthesisUtterance(sentences[j]);
+      if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+      utterance.rate = rate;
+      utterance.onend = () => run(j + 1);
+      utterance.onerror = (event) => {
+        if (token !== tokenRef.current || event.error === "interrupted" || event.error === "canceled") return;
+        run(j + 1);
+      };
+      // Small delay avoids Chrome dropping an utterance queued right after cancel().
+      window.setTimeout(() => { if (token === tokenRef.current) synth.speak(utterance); }, 60);
+    };
+    audioStateRef.current = "playing";
+    setAudioState("playing");
+    setPlaying(false);
+    setPace("manual");
+    setMode("highlight");
+    run(Math.min(Math.max(0, start), sentences.length - 1));
+  }, [rate, sentences, voiceURI, voices]);
+
+  speakFromRef.current = speakFrom;
+
+  const restartIfPlaying = () => {
+    if (audioStateRef.current === "playing") window.setTimeout(() => speakFromRef.current(indexRef.current), 0);
+  };
+
   const setReadingPace = (nextPace: "auto" | "manual") => {
+    if (nextPace === "auto") stopAudio();
     setPace(nextPace);
     setPlaying(false);
     if (nextPace === "manual") setMode("highlight");
   };
 
   const followScroll = () => {
-    if (pace !== "manual" || scrollFrameRef.current !== null) return;
+    if (pace !== "manual" || scrollFrameRef.current !== null || audioStateRef.current === "playing") return;
     scrollFrameRef.current = window.requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       const reader = readerRef.current;
@@ -243,7 +312,7 @@ function Index() {
             </div>
           </section>
         ) : (
-          <div className="flex flex-1 flex-col gap-5 pb-28 pt-6 sm:pt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start lg:pb-8">
+          <div className="flex flex-1 flex-col gap-5 pb-48 pt-6 sm:pt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start lg:pb-36">
             <section className="glass-panel animate-fade-in flex min-h-[480px] flex-col p-6 sm:min-h-[570px] sm:p-9" onClick={pace === "auto" ? advance : undefined}>
               <div className="mb-7 flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                  <span className="flex items-center gap-2"><span className="size-1.5 rounded-full bg-sage" /> Reading now · {pace === "manual" ? "Scroll at your pace" : mode === "highlight" ? "Guided highlight" : "Focus"}</span>
@@ -302,7 +371,24 @@ function Index() {
       </div>
 
       {reading && (
-        <div className="fixed inset-x-0 bottom-0 z-20 p-3 sm:p-5">
+        <div className="fixed inset-x-0 bottom-0 z-20 space-y-2 p-3 sm:p-5">
+          {ttsSupported && (
+            <div className="glass-panel mx-auto flex max-w-[1000px] flex-wrap items-center gap-2 px-3 py-2 sm:gap-3">
+              <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground"><Headphones className="size-4" /><span className="hidden sm:inline">Audiobook</span></span>
+              <Button size="icon" variant={audioState === "playing" ? "default" : "outline"} className="size-9 rounded-full" aria-label={audioState === "playing" ? "Pause audio" : "Play audio"} onClick={() => (audioState === "playing" ? stopAudio("paused") : speakFrom(index))}>
+                {audioState === "playing" ? <Pause /> : <Volume2 />}
+              </Button>
+              <Button size="icon" variant="ghost" className="size-9 rounded-full" aria-label="Stop audio" disabled={audioState === "idle"} onClick={() => stopAudio()}><Square /></Button>
+              <select value={voiceURI} onChange={(e) => { setVoiceURI(e.target.value); restartIfPlaying(); }} aria-label="Voice" className="h-9 min-w-0 max-w-[180px] flex-1 rounded-lg border border-glass-border bg-surface/70 px-2 text-xs text-foreground sm:max-w-[240px]">
+                {voices.length === 0 && <option value="">Default voice</option>}
+                {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
+              </select>
+              <div className="flex min-w-[140px] flex-1 items-center gap-2">
+                <Slider value={[rate]} min={0.5} max={2} step={0.25} onValueChange={(v) => setRate(v[0] ?? 1)} onValueCommit={restartIfPlaying} aria-label="Audio speed" />
+                <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{rate}×</span>
+              </div>
+            </div>
+          )}
           <div className="glass-panel mx-auto flex max-w-[1000px] items-center gap-2 p-2.5 sm:gap-4 sm:px-4 sm:py-3">
              {pace === "auto" && <Button size="icon" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "Pause reading" : "Play reading"} className="size-11 shrink-0 rounded-full">
                {playing ? <Pause /> : <Play />}
@@ -320,8 +406,8 @@ function Index() {
               <span className="hidden text-xs text-muted-foreground sm:inline">Focus</span>
               <Switch checked={mode === "focus"} onCheckedChange={(checked) => setMode(checked ? "focus" : "highlight")} aria-label="Toggle focus mode" />
              </div>}
-            <Button variant="ghost" size="icon" onClick={() => setIndex(0)} aria-label="Restart" title="Restart"><RotateCcw /></Button>
-            <Button variant="outline" onClick={() => { setPlaying(false); setReading(false); }} className="shrink-0"><ArrowLeft /><span className="hidden sm:inline">Back to edit</span></Button>
+            <Button variant="ghost" size="icon" onClick={() => { if (audioStateRef.current === "playing") speakFrom(0); else setIndex(0); }} aria-label="Restart" title="Restart"><RotateCcw /></Button>
+            <Button variant="outline" onClick={() => { stopAudio(); setPlaying(false); setReading(false); }} className="shrink-0"><ArrowLeft /><span className="hidden sm:inline">Back to edit</span></Button>
           </div>
         </div>
       )}
