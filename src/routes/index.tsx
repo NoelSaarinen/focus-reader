@@ -67,6 +67,7 @@ function splitSentences(text: string) {
 
 const countWords = (value: string) => value.split(/\s+/).filter(Boolean).length;
 type Theme = "light" | "dark" | "sepia" | "contrast";
+type AudioState = "idle" | "playing" | "paused";
 type FontChoice = "serif" | "modern" | "access";
 const SIZE_SCALE = { S: 0.85, M: 1, L: 1.2 } as const;
 
@@ -81,9 +82,19 @@ function Index() {
   const [theme, setTheme] = useState<Theme>("light");
   const [size, setSize] = useState<keyof typeof SIZE_SCALE>("M");
   const [font, setFont] = useState<FontChoice>("serif");
-  const sentenceRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const sentenceRefs = useRef<Array<HTMLElement | null>>([]);
   const readerRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const [audioState, setAudioState] = useState<AudioState>("idle");
+  const [ttsSupported, setTtsSupported] = useState(false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voiceURI, setVoiceURI] = useState("");
+  const [rate, setRate] = useState(1);
+  const audioStateRef = useRef<AudioState>("idle");
+  const tokenRef = useRef(0);
+  const indexRef = useRef(0);
+  indexRef.current = index;
+  const speakFromRef = useRef<(i: number) => void>(() => {});
   const sentences = useMemo(() => splitSentences(text), [text]);
   const current = sentences[index] ?? "";
   const progress = sentences.length ? ((index + 1) / sentences.length) * 100 : 0;
@@ -113,10 +124,24 @@ function Index() {
   }, [advance, current, pace, playing, wpm]);
 
   useEffect(() => {
-    if (mode === "highlight" && pace === "auto") {
+    if (mode === "highlight" && (pace === "auto" || audioState === "playing")) {
       sentenceRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [index, mode, pace]);
+  }, [audioState, index, mode, pace]);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    setTtsSupported(true);
+    const synth = window.speechSynthesis;
+    const load = () => {
+      const list = synth.getVoices();
+      setVoices(list);
+      setVoiceURI((cur) => cur || list.find((v) => v.default)?.voiceURI || list[0]?.voiceURI || "");
+    };
+    load();
+    synth.addEventListener("voiceschanged", load);
+    return () => { synth.removeEventListener("voiceschanged", load); tokenRef.current += 1; synth.cancel(); };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -133,13 +158,14 @@ function Index() {
     if (!reading) return;
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [role=slider], [role=dialog]")) return;
+      if (target?.closest("input, textarea, select, [role=slider], [role=dialog]")) return;
       const forward = ["Space", "ArrowDown", "ArrowRight"].includes(event.code);
       const back = ["ArrowUp", "ArrowLeft"].includes(event.code);
       if (!forward && !back) return;
       event.preventDefault();
       if (pace === "manual") {
         const nextIndex = Math.min(sentences.length - 1, Math.max(0, index + (forward ? 1 : -1)));
+        if (audioStateRef.current === "playing") { speakFromRef.current(nextIndex); return; }
         setIndex(nextIndex);
         sentenceRefs.current[nextIndex]?.scrollIntoView({ behavior: "smooth", block: "center" });
       } else if (forward) advance();
@@ -156,14 +182,55 @@ function Index() {
     setPlaying(pace === "auto");
   };
 
+  const stopAudio = useCallback((next: AudioState = "idle") => {
+    tokenRef.current += 1;
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    audioStateRef.current = next;
+    setAudioState(next);
+  }, []);
+
+  const speakFrom = useCallback((start: number) => {
+    if (!("speechSynthesis" in window) || !sentences.length) return;
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const token = ++tokenRef.current;
+    const voice = voices.find((v) => v.voiceURI === voiceURI);
+    const run = (j: number) => {
+      if (token !== tokenRef.current) return;
+      if (j >= sentences.length) { audioStateRef.current = "idle"; setAudioState("idle"); return; }
+      setIndex(j);
+      const utterance = new SpeechSynthesisUtterance(sentences[j]);
+      if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+      utterance.rate = rate;
+      utterance.onend = () => run(j + 1);
+      utterance.onerror = (event) => {
+        if (token !== tokenRef.current || event.error === "interrupted" || event.error === "canceled") return;
+        run(j + 1);
+      };
+      // Small delay avoids Chrome dropping an utterance queued right after cancel().
+      window.setTimeout(() => { if (token === tokenRef.current) synth.speak(utterance); }, 60);
+    };
+    audioStateRef.current = "playing";
+    setAudioState("playing");
+    setPlaying(false);
+    setPace("manual");
+    setMode("highlight");
+    run(Math.min(Math.max(0, start), sentences.length - 1));
+  }, [rate, sentences, voiceURI, voices]);
+
+  const restartIfPlaying = () => {
+    if (audioStateRef.current === "playing") window.setTimeout(() => speakFromRef.current(indexRef.current), 0);
+  };
+
   const setReadingPace = (nextPace: "auto" | "manual") => {
+    if (nextPace === "auto") stopAudio();
     setPace(nextPace);
     setPlaying(false);
     if (nextPace === "manual") setMode("highlight");
   };
 
   const followScroll = () => {
-    if (pace !== "manual" || scrollFrameRef.current !== null) return;
+    if (pace !== "manual" || scrollFrameRef.current !== null || audioStateRef.current === "playing") return;
     scrollFrameRef.current = window.requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       const reader = readerRef.current;
