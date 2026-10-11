@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, Clock, Pause, Play, RotateCcw, ScrollText, Timer, Type } from "lucide-react";
+import { ArrowLeft, Clock, Headphones, Pause, Play, RotateCcw, ScrollText, Square, Timer, Type, Volume2 } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -218,6 +218,8 @@ function Index() {
     run(Math.min(Math.max(0, start), sentences.length - 1));
   }, [rate, sentences, voiceURI, voices]);
 
+  speakFromRef.current = speakFrom;
+
   const restartIfPlaying = () => {
     if (audioStateRef.current === "playing") window.setTimeout(() => speakFromRef.current(indexRef.current), 0);
   };
@@ -310,7 +312,7 @@ function Index() {
             </div>
           </section>
         ) : (
-          <div className="flex flex-1 flex-col gap-5 pb-28 pt-6 sm:pt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start lg:pb-8">
+          <div className="flex flex-1 flex-col gap-5 pb-48 pt-6 sm:pt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start lg:pb-36">
             <section className="glass-panel animate-fade-in flex min-h-[480px] flex-col p-6 sm:min-h-[570px] sm:p-9" onClick={pace === "auto" ? advance : undefined}>
               <div className="mb-7 flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                  <span className="flex items-center gap-2"><span className="size-1.5 rounded-full bg-sage" /> Reading now · {pace === "manual" ? "Scroll at your pace" : mode === "highlight" ? "Guided highlight" : "Focus"}</span>
@@ -369,7 +371,24 @@ function Index() {
       </div>
 
       {reading && (
-        <div className="fixed inset-x-0 bottom-0 z-20 p-3 sm:p-5">
+        <div className="fixed inset-x-0 bottom-0 z-20 space-y-2 p-3 sm:p-5">
+          {ttsSupported && (
+            <div className="glass-panel mx-auto flex max-w-[1000px] flex-wrap items-center gap-2 px-3 py-2 sm:gap-3">
+              <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground"><Headphones className="size-4" /><span className="hidden sm:inline">Audiobook</span></span>
+              <Button size="icon" variant={audioState === "playing" ? "default" : "outline"} className="size-9 rounded-full" aria-label={audioState === "playing" ? "Pause audio" : "Play audio"} onClick={() => (audioState === "playing" ? stopAudio("paused") : speakFrom(index))}>
+                {audioState === "playing" ? <Pause /> : <Volume2 />}
+              </Button>
+              <Button size="icon" variant="ghost" className="size-9 rounded-full" aria-label="Stop audio" disabled={audioState === "idle"} onClick={() => stopAudio()}><Square /></Button>
+              <select value={voiceURI} onChange={(e) => { setVoiceURI(e.target.value); restartIfPlaying(); }} aria-label="Voice" className="h-9 min-w-0 max-w-[180px] flex-1 rounded-lg border border-glass-border bg-surface/70 px-2 text-xs text-foreground sm:max-w-[240px]">
+                {voices.length === 0 && <option value="">Default voice</option>}
+                {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
+              </select>
+              <div className="flex min-w-[140px] flex-1 items-center gap-2">
+                <Slider value={[rate]} min={0.5} max={2} step={0.25} onValueChange={(v) => setRate(v[0] ?? 1)} onValueCommit={restartIfPlaying} aria-label="Audio speed" />
+                <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{rate}×</span>
+              </div>
+            </div>
+          )}
           <div className="glass-panel mx-auto flex max-w-[1000px] items-center gap-2 p-2.5 sm:gap-4 sm:px-4 sm:py-3">
              {pace === "auto" && <Button size="icon" onClick={() => setPlaying((value) => !value)} aria-label={playing ? "Pause reading" : "Play reading"} className="size-11 shrink-0 rounded-full">
                {playing ? <Pause /> : <Play />}
@@ -387,8 +406,8 @@ function Index() {
               <span className="hidden text-xs text-muted-foreground sm:inline">Focus</span>
               <Switch checked={mode === "focus"} onCheckedChange={(checked) => setMode(checked ? "focus" : "highlight")} aria-label="Toggle focus mode" />
              </div>}
-            <Button variant="ghost" size="icon" onClick={() => setIndex(0)} aria-label="Restart" title="Restart"><RotateCcw /></Button>
-            <Button variant="outline" onClick={() => { setPlaying(false); setReading(false); }} className="shrink-0"><ArrowLeft /><span className="hidden sm:inline">Back to edit</span></Button>
+            <Button variant="ghost" size="icon" onClick={() => { if (audioStateRef.current === "playing") speakFrom(0); else setIndex(0); }} aria-label="Restart" title="Restart"><RotateCcw /></Button>
+            <Button variant="outline" onClick={() => { stopAudio(); setPlaying(false); setReading(false); }} className="shrink-0"><ArrowLeft /><span className="hidden sm:inline">Back to edit</span></Button>
           </div>
         </div>
       )}
